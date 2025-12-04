@@ -33,6 +33,7 @@
 #include "task.h"
 #include "printf.h"
 #include <string.h>
+#include "driver/keypad.hpp"
 
 static void APP_SystemClockConfig();
 static void init_usart();
@@ -69,7 +70,9 @@ int main()
 
     printf("hello!\n");
 
-    blink_task_handle = xTaskCreateStatic(blink, "blink", NULL, 0, &blink_task);
+    driver::keypad::init();
+
+    blink_task_handle = xTaskCreateStatic(blink, "blink", NULL, 1, &blink_task);
 
     vTaskStartScheduler();
 
@@ -88,8 +91,16 @@ static void blink(void *arg)
 
     while (1)
     {
-        LL_GPIO_TogglePin(GPIOC, LL_GPIO_PIN_13);
-        vTaskDelay(pdMS_TO_TICKS(500));
+        // LL_GPIO_TogglePin(GPIOC, LL_GPIO_PIN_13);
+        // vTaskDelay(pdMS_TO_TICKS(500));
+
+        using namespace driver::keypad;
+
+        key_event e;
+        if (pdPASS == receive_event(&e, portMAX_DELAY))
+        {
+            printf("keypad: %x %x\n", get_event_type(e), get_key_code(e));
+        }
     }
 }
 

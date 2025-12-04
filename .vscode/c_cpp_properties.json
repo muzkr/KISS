@@ -8,7 +8,6 @@
             "defines": [],
             "cppStandard": "gnu++17",
             "compileCommands": [
-                "build/Debug/compile_commands.json",
                 "build/Release/compile_commands.json"
             ],
             "configurationProvider": "ms-vscode.cmake-tools"
