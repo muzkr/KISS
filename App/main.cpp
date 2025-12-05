@@ -34,6 +34,7 @@
 #include "printf.h"
 #include <string.h>
 #include "driver/keypad.hpp"
+#include "driver/lcd.hpp"
 
 static void APP_SystemClockConfig();
 static void init_usart();
@@ -70,6 +71,7 @@ int main()
 
     printf("hello!\n");
 
+    driver::lcd::init();
     driver::keypad::init();
 
     blink_task_handle = xTaskCreateStatic(blink, "blink", NULL, 1, &blink_task);
@@ -97,10 +99,21 @@ static void blink(void *arg)
         using namespace driver::keypad;
 
         key_event e;
-        if (pdPASS == receive_event(&e, portMAX_DELAY))
+        if (receive_event(&e, portMAX_DELAY))
         {
-            printf("keypad: %x %x\n", get_event_type(e), get_key_code(e));
+            printf("keypad event: %x %x %x\n", e, get_event_type(e), get_key_code(e));
+
+            if (KEY_PRESSED == get_event_type(e))
+            {
+                driver::lcd::fill((uint8_t)get_key_code(e));
+            }
         }
+
+        // for (uint32_t px = 0; px < 0xf; px++)
+        // {
+        //     driver::lcd::fill(px);
+        //     vTaskDelay(pdMS_TO_TICKS(5000));
+        // }
     }
 }
 
@@ -127,26 +140,26 @@ static void init_usart()
 
     do
     {
-        LL_GPIO_InitTypeDef InitStruct;
-        InitStruct.Pin = LL_GPIO_PIN_9 | LL_GPIO_PIN_10;
-        InitStruct.Mode = LL_GPIO_MODE_ALTERNATE;
-        InitStruct.Alternate = LL_GPIO_AF1_USART1;
-        InitStruct.Pull = LL_GPIO_PULL_UP;
-        InitStruct.Speed = LL_GPIO_SPEED_FREQ_VERY_HIGH;
-        InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
-        LL_GPIO_Init(GPIOA, &InitStruct);
+        LL_GPIO_InitTypeDef init_struct;
+        init_struct.Pin = LL_GPIO_PIN_9 | LL_GPIO_PIN_10;
+        init_struct.Mode = LL_GPIO_MODE_ALTERNATE;
+        init_struct.Alternate = LL_GPIO_AF1_USART1;
+        init_struct.Pull = LL_GPIO_PULL_UP;
+        init_struct.Speed = LL_GPIO_SPEED_FREQ_VERY_HIGH;
+        init_struct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+        LL_GPIO_Init(GPIOA, &init_struct);
     } while (0);
 
     do
     {
-        LL_USART_InitTypeDef InitStruct;
-        LL_USART_StructInit(&InitStruct);
-        InitStruct.BaudRate = 38400;
-        InitStruct.DataWidth = LL_USART_DATAWIDTH_8B;
-        InitStruct.Parity = LL_USART_PARITY_NONE;
-        InitStruct.StopBits = LL_USART_STOPBITS_1;
-        InitStruct.TransferDirection = LL_USART_DIRECTION_TX_RX;
-        LL_USART_Init(USART1, &InitStruct);
+        LL_USART_InitTypeDef init_struct;
+        LL_USART_StructInit(&init_struct);
+        init_struct.BaudRate = 38400;
+        init_struct.DataWidth = LL_USART_DATAWIDTH_8B;
+        init_struct.Parity = LL_USART_PARITY_NONE;
+        init_struct.StopBits = LL_USART_STOPBITS_1;
+        init_struct.TransferDirection = LL_USART_DIRECTION_TX_RX;
+        LL_USART_Init(USART1, &init_struct);
     } while (0);
 
     LL_USART_ConfigAsyncMode(USART1);
@@ -162,6 +175,7 @@ static void APP_SystemClockConfig()
 {
     // LL_SetSystemCoreClock(48000000);
     SystemCoreClockUpdate();
+    LL_Init1msTick(SystemCoreClock);
 }
 
 /**

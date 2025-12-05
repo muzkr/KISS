@@ -10,4 +10,5 @@ target_link_libraries(KISS_Driver INTERFACE
 
 target_sources(KISS_Driver INTERFACE
     keypad.cpp
+    lcd.cpp
 )

@@ -7,7 +7,7 @@
 #include "task.h"
 #include "queue.h"
 
-#include "printf.h"
+// #include "printf.h"
 
 #define GPIOx GPIOB
 #define PTT_PIN LL_GPIO_PIN_10
@@ -73,7 +73,7 @@ static void raise_event(event_type type, key_code key)
 {
     key_event e = make_event(type, key);
 
-    // printf("keypad: %x %x\n", get_event_type(e), get_key_code(e));
+    // printf("keypad: %x %x %x\n", e, get_event_type(e), get_key_code(e));
 
     xQueueSend(event_queue, &e, 0);
 }
@@ -173,6 +173,7 @@ static void task_run(void *arg)
         else if (scan_cols((uint32_t)row, &col))
         {
             key = get_key((uint32_t)row, col);
+            // printf("scan_cols: %d, %d, %d\n", row, col, key);
         }
         else
         {
@@ -247,22 +248,22 @@ void driver::keypad::init()
     // LL_GPIO_SetOutputPin(GPIOx, COL_PINS);
     do
     {
-        LL_GPIO_InitTypeDef InitStruct;
-        InitStruct.Speed = LL_GPIO_SPEED_FREQ_VERY_HIGH;
+        LL_GPIO_InitTypeDef init_struct;
+        init_struct.Speed = LL_GPIO_SPEED_FREQ_VERY_HIGH;
 
         // Input ----
 
-        InitStruct.Pin = PTT_PIN | ROW_PINS;
-        InitStruct.Mode = LL_GPIO_MODE_INPUT;
-        InitStruct.Pull = LL_GPIO_PULL_UP;
-        LL_GPIO_Init(GPIOx, &InitStruct);
+        init_struct.Pin = PTT_PIN | ROW_PINS;
+        init_struct.Mode = LL_GPIO_MODE_INPUT;
+        init_struct.Pull = LL_GPIO_PULL_UP;
+        LL_GPIO_Init(GPIOx, &init_struct);
 
         // Output ----
 
-        InitStruct.Pin = COL_PINS;
-        InitStruct.Mode = LL_GPIO_MODE_OUTPUT;
-        InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
-        LL_GPIO_Init(GPIOx, &InitStruct);
+        init_struct.Pin = COL_PINS;
+        init_struct.Mode = LL_GPIO_MODE_OUTPUT;
+        init_struct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+        LL_GPIO_Init(GPIOx, &init_struct);
     } while (false);
 
     // Kernel objects
