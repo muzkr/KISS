@@ -146,22 +146,6 @@ static void SPI_write_byte(uint8_t n)
     LL_SPI_ReceiveData8(SPIx);
 }
 
-static void SPI_write_byte_yield(uint8_t n)
-{
-    while (!LL_SPI_IsActiveFlag_TXE(SPIx))
-    {
-        vPortYield();
-    }
-    LL_SPI_TransmitData8(SPIx, n);
-
-    while (!LL_SPI_IsActiveFlag_RXNE(SPIx))
-    {
-        vPortYield();
-    }
-
-    LL_SPI_ReceiveData8(SPIx);
-}
-
 namespace st7565
 {
     constexpr uint8_t cmd_display_on(bool on)
@@ -236,7 +220,7 @@ void driver::lcd::init(bool inverse)
 {
     SPI_init();
 
-    LL_mDelay(2);
+    LL_mDelay(1);
 
     CS_assert();
 
@@ -291,18 +275,16 @@ void driver::lcd::fill(uint8_t px)
     for (uint32_t page = 0; page < LCD_PAGES; page++)
     {
         A0_cmd_mode();
-        SPI_write_byte_yield(st7565::cmd_set_page_addr(page));
-        SPI_write_byte_yield(st7565::cmd_set_col_addr_MSB(COL_ADDR_OFFSET));
-        SPI_write_byte_yield(st7565::cmd_set_col_addr_LSB(COL_ADDR_OFFSET));
-        // SPI_write_byte(st7565::cmd_set_page_addr(page));
-        // SPI_write_byte(st7565::cmd_set_col_addr_MSB(COL_ADDR_OFFSET));
-        // SPI_write_byte(st7565::cmd_set_col_addr_LSB(COL_ADDR_OFFSET));
+        SPI_write_byte(st7565::cmd_set_page_addr(page));
+        SPI_write_byte(st7565::cmd_set_col_addr_MSB(COL_ADDR_OFFSET));
+        SPI_write_byte(st7565::cmd_set_col_addr_LSB(COL_ADDR_OFFSET));
+        vPortYield();
 
         A0_data_mode();
         for (uint32_t col = 0; col < LCD_WIDTH; col++)
         {
-            SPI_write_byte_yield(px);
-            // SPI_write_byte(px);
+            SPI_write_byte(px);
+            vPortYield();
         }
     }
 
