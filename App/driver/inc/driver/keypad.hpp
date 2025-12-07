@@ -32,43 +32,33 @@ namespace driver::keypad
         KEY_SIDE1,
         KEY_SIDE2,
 
-        //
-        _KEY_MAX,
-
         // Alias
         KEY_LEFT = KEY_UP,
         KEY_RIGHT = KEY_DOWN,
-
     };
 
     enum event_type
     {
-        KEY_PRESSED,
-        KEY_SHORT_PRESS,
-        KEY_LONG_PRESS,
-        KEY_LONG_PRESS_REPEAT,
-        KEY_RELEASED,
-        _EVENT_TYPE_MAX,
+        KEY_PRESSED = 1,
+        KEY_SHORT_PRESS = 1 << 1,
+        KEY_LONG_PRESS = 1 << 2,
+        KEY_LONG_PRESS_REPEAT = 1 << 3,
+        KEY_RELEASED = 1 << 4,
+
+        // Combinations
+        EVENT_ANY = KEY_PRESSED | KEY_SHORT_PRESS | KEY_LONG_PRESS | KEY_LONG_PRESS_REPEAT | KEY_RELEASED,
     };
 
-    static_assert(_KEY_MAX <= 0b10'0000);
-    static_assert(_EVENT_TYPE_MAX <= 0b1000);
-
-    using key_event = uint8_t;
-
-    static inline key_event make_event(event_type type, key_code key)
-    {
-        return (key_event)((key << 3) | (0b111 & type));
-    }
+    using key_event = uint16_t;
 
     static inline key_code get_key_code(key_event e)
     {
-        return (key_code)(e >> 3);
+        return (key_code)(e >> 8);
     }
 
     static inline event_type get_event_type(key_event e)
     {
-        return (event_type)(0b111 & e);
+        return (event_type)(0xff & e);
     }
 
     void init();

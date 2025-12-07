@@ -5,7 +5,7 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
-#include "queue.h"
+#include "event_groups.h"
 
 // #include "printf.h"
 
@@ -40,9 +40,13 @@ static const uint8_t KEY_CODES[5][4] = {
 
 static TaskHandle_t keypad_task;
 static StaticTask_t keypad_task_obj;
-static QueueHandle_t event_queue;
-static StaticQueue_t event_queue_obj;
-static uint8_t event_queue_buf[EVENT_QUEUE_LEN];
+static EventGroupHandle_t event_group;
+static StaticEventGroup_t event_group_obj;
+
+static inline key_event make_event(event_type type, key_code key)
+{
+    return (key_event)((key << 8) | (0xff & type));
+}
 
 static inline key_code get_key(uint32_t row, int32_t col)
 {
@@ -75,7 +79,8 @@ static void raise_event(event_type type, key_code key)
 
     // printf("keypad: %x %x %x\n", e, get_event_type(e), get_key_code(e));
 
-    xQueueSend(event_queue, &e, 0);
+    xEventGroupClearBits(event_group, (EventBits_t)make_event(EVENT_ANY, (key_code)0xff));
+    xEventGroupSetBits(event_group, (EventBits_t)e);
 }
 
 static bool scan_rows(int32_t *row)
@@ -267,11 +272,17 @@ void driver::keypad::init()
     } while (false);
 
     // Kernel objects
-    event_queue = xQueueCreateStatic(EVENT_QUEUE_LEN, 1, event_queue_buf, &event_queue_obj);
+    event_group = xEventGroupCreateStatic(&event_group_obj);
     keypad_task = xTaskCreateStatic(task_run, "keypad", NULL, 1, &keypad_task_obj);
 }
 
 BaseType_t driver::keypad::receive_event(key_event *e, TickType_t wait)
 {
-    return xQueueReceive(event_queue, e, wait);
+    EventBits_t e1 = xEventGroupWaitBits(event_group, (EventBits_t)EVENT_ANY, pdTRUE, pdFALSE, wait);
+    if (e1 & EVENT_ANY)
+    {
+        *e = (key_event)e1;
+        return pdTRUE;
+    }
+    return pdFALSE;
 }
