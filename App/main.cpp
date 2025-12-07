@@ -35,6 +35,7 @@
 #include <string.h>
 #include "driver/keypad.hpp"
 #include "driver/lcd.hpp"
+#include "driver/backlight.hpp"
 
 static void APP_SystemClockConfig();
 static void init_usart();
@@ -73,6 +74,7 @@ int main()
 
     driver::lcd::init();
     driver::keypad::init();
+    driver::backlight::init(5);
 
     blink_task_handle = xTaskCreateStatic(blink, "blink", NULL, 1, &blink_task);
 
@@ -106,6 +108,15 @@ static void blink(void *arg)
             if (KEY_PRESSED == get_event_type(e))
             {
                 driver::lcd::fill((uint8_t)get_key_code(e));
+
+                if (KEY_UP == get_key_code(e))
+                {
+                    driver::backlight::set_level(1 + driver::backlight::get_current_level());
+                }
+                else if (KEY_DOWN == get_key_code(e) && driver::backlight::get_current_level() > 0)
+                {
+                    driver::backlight::set_level(driver::backlight::get_current_level() - 1);
+                }
             }
         }
 
