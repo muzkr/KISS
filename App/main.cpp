@@ -37,6 +37,7 @@
 #include "driver/lcd.hpp"
 #include "driver/backlight.hpp"
 #include "driver/serial.hpp"
+#include "driver/adc.hpp"
 
 static void APP_SystemClockConfig();
 static void blink(void *arg);
@@ -66,6 +67,7 @@ int main()
     driver::lcd::init();
     driver::keypad::init();
     driver::backlight::init(5);
+    driver::adc::init();
 
     blink_task_handle = xTaskCreateStatic(blink, "blink", NULL, 1, &blink_task);
 
@@ -101,7 +103,10 @@ static void blink(void *arg)
             if (KEY_PRESSED == get_event_type(e))
             {
                 driver::lcd::fill((uint8_t)get_key_code(e));
+            }
 
+            if (KEY_PRESSED == get_event_type(e))
+            {
                 if (KEY_UP == get_key_code(e))
                 {
                     driver::backlight::set_level(1 + driver::backlight::get_current_level());
@@ -110,6 +115,12 @@ static void blink(void *arg)
                 {
                     driver::backlight::set_level(driver::backlight::get_current_level() - 1);
                 }
+            }
+
+            if (KEY_SHORT_PRESS == get_event_type(e) && KEY_MENU == get_key_code(e))
+            {
+                uint16_t vol = driver::adc::get_voltage();
+                printf("batt: ~ %d mV\n", vol * 4 * 3300 / 0xfff);
             }
         }
 
