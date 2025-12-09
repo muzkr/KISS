@@ -38,6 +38,7 @@
 #include "driver/backlight.hpp"
 #include "driver/serial.hpp"
 #include "driver/adc.hpp"
+#include "driver/flashlight.hpp"
 
 static void APP_SystemClockConfig();
 static void blink(void *arg);
@@ -68,6 +69,7 @@ int main()
     driver::keypad::init();
     driver::backlight::init(5);
     driver::adc::init();
+    driver::flashlight::init();
 
     blink_task_handle = xTaskCreateStatic(blink, "blink", NULL, 1, &blink_task);
 
@@ -80,15 +82,10 @@ int main()
 
 static void blink(void *arg)
 {
-    // PC13
-
-    LL_IOP_GRP1_EnableClock(LL_IOP_GRP1_PERIPH_GPIOC);
-    LL_GPIO_SetPinMode(GPIOC, LL_GPIO_PIN_13, LL_GPIO_MODE_OUTPUT);
-    LL_GPIO_SetPinOutputType(GPIOC, LL_GPIO_PIN_13, LL_GPIO_OUTPUT_PUSHPULL);
 
     printf("hello!\n");
 
-    while (1)
+    while (true)
     {
         // LL_GPIO_TogglePin(GPIOC, LL_GPIO_PIN_13);
         // vTaskDelay(pdMS_TO_TICKS(500));
@@ -122,14 +119,14 @@ static void blink(void *arg)
                 uint16_t vol = driver::adc::get_voltage();
                 printf("batt: ~ %d mV\n", vol * 4 * 3300 / 0xfff);
             }
-        }
 
-        // for (uint32_t px = 0; px < 0xf; px++)
-        // {
-        //     driver::lcd::fill(px);
-        //     vTaskDelay(pdMS_TO_TICKS(5000));
-        // }
-    }
+            if (KEY_SHORT_PRESS == get_event_type(e) && KEY_SIDE1 == get_key_code(e))
+            {
+                driver::flashlight::toggle();
+            }
+        } //
+
+    } // while
 }
 
 /**

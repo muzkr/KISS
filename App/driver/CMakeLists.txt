@@ -14,4 +14,5 @@ target_sources(KISS_Driver INTERFACE
     backlight.cpp
     serial.cpp
     adc.cpp
+    flashlight.cpp
 )
