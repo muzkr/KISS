@@ -2,10 +2,12 @@
 #include "driver/keypad.hpp"
 #include "py32f071_ll_bus.h"
 #include "py32f071_ll_gpio.h"
+#include "py32f071_ll_exti.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
 #include "event_groups.h"
+#include "semphr.h"
 
 // #include "printf.h"
 
@@ -21,12 +23,17 @@
 #define COL_SIDE -1
 
 #define DEBOUNCE_IN_TIMEOUT 30
-#define DEBOUNCE_OUT_TIMEOUT 30
+#define DEBOUNCE_OUT_TIMEOUT 20
 #define LONG_PRESS_TIMEOUT 400
 #define LONG_PRESS_REPEAT_TIMEOUT 200
 // #define POLL_DELAY 10
 
-#define EVENT_QUEUE_LEN 8
+#define EXTI_IRQn EXTI4_15_IRQn
+#define EXTI_IRQ_PRIORITY 3
+#define EXTI_IRQHandler EXTI4_15_IRQHandler
+#define EXTI_LINES (PTT_PIN | ROW_PINS)
+#define EXTI_ENABLE_IT() LL_EXTI_EnableIT(EXTI_LINES)
+#define EXTI_DISABLE_IT() LL_EXTI_DisableIT(EXTI_LINES)
 
 using namespace driver::keypad;
 
@@ -40,13 +47,10 @@ static const uint8_t KEY_CODES[5][4] = {
 
 static TaskHandle_t keypad_task;
 static StaticTask_t keypad_task_obj;
+static SemaphoreHandle_t EXTI_semphr;
+static StaticSemaphore_t EXTI_semphr_obj;
 static EventGroupHandle_t event_group;
 static StaticEventGroup_t event_group_obj;
-
-static inline key_event make_event(event_type type, key_code key)
-{
-    return (key_event)((key << 8) | (0xff & type));
-}
 
 static inline key_code get_key(uint32_t row, int32_t col)
 {
@@ -83,6 +87,11 @@ static void raise_event(event_type type, key_code key)
     xEventGroupSetBits(event_group, (EventBits_t)e);
 }
 
+static inline void debounce_in()
+{
+    vTaskDelay(pdMS_TO_TICKS(DEBOUNCE_IN_TIMEOUT));
+}
+
 static bool scan_rows(int32_t *row)
 {
     // Check them all: return fast
@@ -109,11 +118,6 @@ static bool scan_rows(int32_t *row)
     }
 
     return false;
-}
-
-static inline void debounce_in()
-{
-    vTaskDelay(pdMS_TO_TICKS(DEBOUNCE_IN_TIMEOUT));
 }
 
 static bool scan_cols(uint32_t row, int32_t *col)
@@ -152,24 +156,48 @@ static void debounce_out()
     vTaskDelay(pdMS_TO_TICKS(DEBOUNCE_OUT_TIMEOUT));
 }
 
+extern "C"
+{
+    void EXTI_IRQHandler()
+    {
+        LL_EXTI_DisableIT(EXTI_LINES);
+        LL_EXTI_ClearFlag(EXTI_LINES);
+        NVIC_ClearPendingIRQ(EXTI_IRQn);
+        xSemaphoreGiveFromISR(EXTI_semphr, NULL);
+    }
+}
+
 static void task_run(void *arg)
 {
     reset_cols();
+
     vTaskDelay(pdMS_TO_TICKS(1));
+
+    NVIC_EnableIRQ(EXTI_IRQn);
 
     while (true)
     {
+        LL_EXTI_ClearFlag(EXTI_LINES);
+        NVIC_ClearPendingIRQ(EXTI_IRQn);
+        xSemaphoreTake(EXTI_semphr, 0);
+        EXTI_ENABLE_IT();
+
+        if (!xSemaphoreTake(EXTI_semphr, portMAX_DELAY))
+        {
+            continue;
+        }
+
         int32_t row;
         int32_t col;
         key_code key;
 
+        debounce_in();
+
         if (!scan_rows(&row))
         {
-            vPortYield();
+            debounce_out();
             continue;
         }
-
-        debounce_in();
 
         if (ROW_PTT == row)
         {
@@ -211,7 +239,7 @@ static void task_run(void *arg)
         if (!long_press)
         {
             raise_event(KEY_SHORT_PRESS, key);
-            vPortYield();
+            // vPortYield();
             debounce_out();
             continue;
         }
@@ -250,7 +278,8 @@ void driver::keypad::init()
 {
     LL_IOP_GRP1_EnableClock(LL_IOP_GRP1_PERIPH_GPIOB);
 
-    // LL_GPIO_SetOutputPin(GPIOx, COL_PINS);
+    // LL_GPIO_ResetOutputPin(GPIOx, COL_PINS);
+
     do
     {
         LL_GPIO_InitTypeDef init_struct;
@@ -271,18 +300,43 @@ void driver::keypad::init()
         LL_GPIO_Init(GPIOx, &init_struct);
     } while (false);
 
+    NVIC_DisableIRQ(EXTI_IRQn);
+    NVIC_SetPriority(EXTI_IRQn, EXTI_IRQ_PRIORITY);
+
+    do
+    {
+        EXTI_DISABLE_IT();
+        LL_EXTI_DisableEvent(EXTI_LINES);
+
+        LL_EXTI_SetEXTISource(LL_EXTI_CONFIG_PORTB, LL_EXTI_CONFIG_LINE10);
+        LL_EXTI_SetEXTISource(LL_EXTI_CONFIG_PORTB, LL_EXTI_CONFIG_LINE15);
+        LL_EXTI_SetEXTISource(LL_EXTI_CONFIG_PORTB, LL_EXTI_CONFIG_LINE14);
+        LL_EXTI_SetEXTISource(LL_EXTI_CONFIG_PORTB, LL_EXTI_CONFIG_LINE13);
+        LL_EXTI_SetEXTISource(LL_EXTI_CONFIG_PORTB, LL_EXTI_CONFIG_LINE12);
+
+        LL_EXTI_InitTypeDef init_struct;
+        init_struct.Line = EXTI_LINES;
+        init_struct.LineCommand = ENABLE;
+        init_struct.Mode = LL_EXTI_MODE_IT;
+        init_struct.Trigger = LL_EXTI_TRIGGER_FALLING;
+        LL_EXTI_Init(&init_struct);
+
+        EXTI_DISABLE_IT();
+    } while (false);
+
     // Kernel objects
+    EXTI_semphr = xSemaphoreCreateBinaryStatic(&EXTI_semphr_obj);
     event_group = xEventGroupCreateStatic(&event_group_obj);
     keypad_task = xTaskCreateStatic(task_run, "keypad", NULL, 1, &keypad_task_obj);
 }
 
-BaseType_t driver::keypad::receive_event(key_event *e, TickType_t wait)
+bool driver::keypad::receive_event(key_event *e, TickType_t wait)
 {
     EventBits_t e1 = xEventGroupWaitBits(event_group, (EventBits_t)EVENT_ANY, pdTRUE, pdFALSE, wait);
     if (e1 & EVENT_ANY)
     {
         *e = (key_event)e1;
-        return pdTRUE;
+        return true;
     }
-    return pdFALSE;
+    return false;
 }

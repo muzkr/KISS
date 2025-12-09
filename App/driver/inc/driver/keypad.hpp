@@ -51,6 +51,11 @@ namespace driver::keypad
 
     using key_event = uint16_t;
 
+    static inline key_event make_event(event_type type, key_code key)
+    {
+        return (key_event)((key << 8) | (0xff & type));
+    }
+
     static inline key_code get_key_code(key_event e)
     {
         return (key_code)(e >> 8);
@@ -62,7 +67,7 @@ namespace driver::keypad
     }
 
     void init();
-    BaseType_t receive_event(key_event *e, TickType_t wait);
+    bool receive_event(key_event *e, TickType_t wait);
 }
 
 #endif // _DRIVER_KEYPAD_HPP
