@@ -36,23 +36,17 @@
 #include "driver/keypad.hpp"
 #include "driver/lcd.hpp"
 #include "driver/backlight.hpp"
+#include "driver/serial.hpp"
 
 static void APP_SystemClockConfig();
-static void init_usart();
-static void usart_tx(const uint8_t *buf, uint32_t size);
 static void blink(void *arg);
-
-static inline void usart_tx_str(const char *str)
-{
-    usart_tx((const uint8_t *)str, strlen(str));
-}
 
 static StaticTask_t blink_task;
 static TaskHandle_t blink_task_handle;
 
 void _putchar(char c)
 {
-    usart_tx((uint8_t *)&c, 1);
+    driver::serial::send((uint8_t *)&c, 1);
 }
 
 /**
@@ -68,11 +62,8 @@ int main()
     /* Clock initialization, configure the system clock as HSI */
     APP_SystemClockConfig();
 
-    init_usart();
-
-    printf("hello!\n");
-
-    driver::lcd::init(true);
+    driver::serial::init();
+    driver::lcd::init();
     driver::keypad::init();
     driver::backlight::init(5);
 
@@ -92,6 +83,8 @@ static void blink(void *arg)
     LL_IOP_GRP1_EnableClock(LL_IOP_GRP1_PERIPH_GPIOC);
     LL_GPIO_SetPinMode(GPIOC, LL_GPIO_PIN_13, LL_GPIO_MODE_OUTPUT);
     LL_GPIO_SetPinOutputType(GPIOC, LL_GPIO_PIN_13, LL_GPIO_OUTPUT_PUSHPULL);
+
+    printf("hello!\n");
 
     while (1)
     {
@@ -126,55 +119,6 @@ static void blink(void *arg)
         //     vTaskDelay(pdMS_TO_TICKS(5000));
         // }
     }
-}
-
-static void usart_tx(const uint8_t *buf, uint32_t size)
-{
-    for (uint32_t i = 0; i < size; i++)
-    {
-        while (!LL_USART_IsActiveFlag_TXE(USART1))
-        {
-        }
-        LL_USART_TransmitData8(USART1, buf[i]);
-    }
-}
-
-static void init_usart()
-{
-    // USART1
-    // PA9, PA10
-
-    LL_IOP_GRP1_EnableClock(LL_IOP_GRP1_PERIPH_GPIOA);
-    LL_APB1_GRP2_EnableClock(LL_APB1_GRP2_PERIPH_USART1);
-
-    LL_USART_Disable(USART1);
-
-    do
-    {
-        LL_GPIO_InitTypeDef init_struct;
-        init_struct.Pin = LL_GPIO_PIN_9 | LL_GPIO_PIN_10;
-        init_struct.Mode = LL_GPIO_MODE_ALTERNATE;
-        init_struct.Alternate = LL_GPIO_AF1_USART1;
-        init_struct.Pull = LL_GPIO_PULL_UP;
-        init_struct.Speed = LL_GPIO_SPEED_FREQ_VERY_HIGH;
-        init_struct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
-        LL_GPIO_Init(GPIOA, &init_struct);
-    } while (0);
-
-    do
-    {
-        LL_USART_InitTypeDef init_struct;
-        LL_USART_StructInit(&init_struct);
-        init_struct.BaudRate = 38400;
-        init_struct.DataWidth = LL_USART_DATAWIDTH_8B;
-        init_struct.Parity = LL_USART_PARITY_NONE;
-        init_struct.StopBits = LL_USART_STOPBITS_1;
-        init_struct.TransferDirection = LL_USART_DIRECTION_TX_RX;
-        LL_USART_Init(USART1, &init_struct);
-    } while (0);
-
-    LL_USART_ConfigAsyncMode(USART1);
-    LL_USART_Enable(USART1);
 }
 
 /**

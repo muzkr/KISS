@@ -12,4 +12,5 @@ target_sources(KISS_Driver INTERFACE
     keypad.cpp
     lcd.cpp
     backlight.cpp
+    serial.cpp
 )
