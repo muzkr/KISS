@@ -13,12 +13,11 @@
 #define PIN_SET BL_PIN
 #define PIN_RESET (BL_PIN << 16)
 
-#define DMAx DMA1
-#define DMA_CHN LL_DMA_CHANNEL_3
-
+#define DMA_CHANNEL LL_DMA_CHANNEL_4
+#define DMA_PRIORITY LL_DMA_PRIORITY_MEDIUM
 #define TIMx TIM6
 
-#define REFRESH_RATE 100
+#define REFRESH_RATE 240
 
 using namespace driver::backlight;
 
@@ -32,23 +31,23 @@ static inline uint32_t calc_ARR(uint32_t f)
 
 static void config_DMA()
 {
-    LL_DMA_ConfigTransfer(DMAx, DMA_CHN,                    //
+    LL_DMA_ConfigTransfer(DMA1, DMA_CHANNEL,                //
                           LL_DMA_DIRECTION_MEMORY_TO_PERIPH //
                               | LL_DMA_MODE_CIRCULAR        //
                               | LL_DMA_PERIPH_NOINCREMENT   //
                               | LL_DMA_MEMORY_INCREMENT     //
                               | LL_DMA_PDATAALIGN_WORD      //
                               | LL_DMA_MDATAALIGN_WORD      //
-                              | LL_DMA_PRIORITY_MEDIUM      //
+                              | DMA_PRIORITY                //
     );
-    LL_DMA_SetMemoryAddress(DMAx, DMA_CHN, (uint32_t)duty_cycle);
-    LL_DMA_SetPeriphAddress(DMAx, DMA_CHN, (uint32_t)&GPIOx->BSRR);
-    LL_DMA_SetDataLength(DMAx, DMA_CHN, sizeof(duty_cycle) / sizeof(uint32_t));
+    LL_DMA_SetMemoryAddress(DMA1, DMA_CHANNEL, (uint32_t)duty_cycle);
+    LL_DMA_SetPeriphAddress(DMA1, DMA_CHANNEL, (uint32_t)&GPIOx->BSRR);
+    LL_DMA_SetDataLength(DMA1, DMA_CHANNEL, sizeof(duty_cycle) / sizeof(uint32_t));
 }
 
 static void set_level(uint32_t level)
 {
-    LL_DMA_DisableChannel(DMAx, DMA_CHN);
+    LL_DMA_DisableChannel(DMA1, DMA_CHANNEL);
     LL_TIM_DisableCounter(TIMx);
 
     if (0 == level)
@@ -62,17 +61,13 @@ static void set_level(uint32_t level)
         return;
     }
 
-    for (uint32_t i = 0; i < level; i++)
+    for (uint32_t i = 0; i < BACKLIGHT_LEVELS; i++)
     {
-        duty_cycle[i] = PIN_SET;
-    }
-    for (uint32_t i = level; i < BACKLIGHT_LEVELS; i++)
-    {
-        duty_cycle[i] = PIN_RESET;
+        duty_cycle[i] = i < level ? PIN_SET : PIN_RESET;
     }
 
     config_DMA();
-    LL_DMA_EnableChannel(DMAx, DMA_CHN);
+    LL_DMA_EnableChannel(DMA1, DMA_CHANNEL);
     LL_TIM_EnableCounter(TIMx);
 }
 
@@ -96,8 +91,8 @@ void driver::backlight::init(uint32_t level)
         LL_GPIO_Init(GPIOx, &init_struct);
     } while (false);
 
-    LL_DMA_DisableChannel(DMAx, DMA_CHN);
-    LL_SYSCFG_SetDMARemap(DMAx, DMA_CHN, LL_SYSCFG_DMA_MAP_TIM6_UP);
+    LL_DMA_DisableChannel(DMA1, DMA_CHANNEL);
+    LL_SYSCFG_SetDMARemap(DMA1, DMA_CHANNEL, LL_SYSCFG_DMA_MAP_TIM6_UP);
 
     LL_TIM_DisableCounter(TIMx);
 
@@ -105,8 +100,8 @@ void driver::backlight::init(uint32_t level)
     {
         LL_TIM_InitTypeDef init_struct;
         init_struct.CounterMode = LL_TIM_COUNTERMODE_UP;
-        init_struct.Prescaler = 999;
-        init_struct.Autoreload = calc_ARR(SystemCoreClock / 1000);
+        init_struct.Prescaler = 9;
+        init_struct.Autoreload = calc_ARR(SystemCoreClock / 10);
         LL_TIM_Init(TIMx, &init_struct);
     } while (false);
 
