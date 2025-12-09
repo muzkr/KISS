@@ -9,6 +9,9 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
+#include "semphr.h"
+
+#include "printf.h"
 
 // PB2
 #define CS_PORT GPIOB
@@ -19,14 +22,27 @@
 #define A0_PIN LL_GPIO_PIN_6
 
 #define SPIx SPI1
-// #define DMAx DMA1
-// #define DMA_CHANNEL LL_DMA_CHANNEL_2
-// #define DMA_PRIORITY LL_DMA_PRIORITY_MEDIUM
-// #define DMA_CHANNEL_IRQn DMA1_Channel2_3_IRQn
-// #define DMA_CHANNEL_IRQ_PRIORITY 1
-// #define DMA_CHANNEL_IRQHandler DMA1_Channel2_3_IRQHandler
+#define DMA_CHANNEL_TX LL_DMA_CHANNEL_5
+#define DMA_CHANNEL_RX LL_DMA_CHANNEL_1
+#define DMA_PRIORITY LL_DMA_PRIORITY_HIGH
+#define DMA_CHANNEL_IRQn DMA1_Channel1_IRQn
+#define DMA_CHANNEL_IRQ_PRIORITY 3
+#define DMA_CHANNEL_IRQHandler DMA1_Channel1_IRQHandler
+#define DMA_ENABLE_IT_TC() LL_DMA_EnableIT_TC(DMA1, DMA_CHANNEL_RX)
+#define DMA_DISABLE_IT_TC() LL_DMA_DisableIT_TC(DMA1, DMA_CHANNEL_RX)
+#define DMA_CHECK_TC() LL_DMA_IsActiveFlag_TC1(DMA1)
+#define DMA_CLEAR_TC() LL_DMA_ClearFlag_TC1(DMA1)
+#define DMA_CLEAR_GI() LL_DMA_ClearFlag_GI1(DMA1)
 
 #define COL_ADDR_OFFSET 4
+#define DMA_TX_MIN 32
+
+static uint8_t dummy;
+static bool inverse;
+static StaticSemaphore_t TC_semphr_obj;
+static SemaphoreHandle_t TC_semphr;
+static StaticSemaphore_t lcd_mutex_obj;
+static SemaphoreHandle_t lcd_mutex;
 
 static inline void CS_assert()
 {
@@ -53,7 +69,7 @@ static void SPI_init()
     LL_IOP_GRP1_EnableClock(LL_IOP_GRP1_PERIPH_GPIOA | LL_IOP_GRP1_PERIPH_GPIOB);
     LL_APB1_GRP2_EnableClock(LL_APB1_GRP2_PERIPH_SYSCFG);
     LL_APB1_GRP2_EnableClock(LL_APB1_GRP2_PERIPH_SPI1);
-    // LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_DMA1);
+    LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_DMA1);
 
     CS_release();
 
@@ -93,6 +109,13 @@ static void SPI_init()
 
     } while (false);
 
+    NVIC_DisableIRQ(DMA_CHANNEL_IRQn);
+    NVIC_SetPriority(DMA_CHANNEL_IRQn, DMA_CHANNEL_IRQ_PRIORITY);
+    NVIC_EnableIRQ(DMA_CHANNEL_IRQn);
+
+    LL_SYSCFG_SetDMARemap(DMA1, DMA_CHANNEL_RX, LL_SYSCFG_DMA_MAP_SPI1_RD);
+    LL_SYSCFG_SetDMARemap(DMA1, DMA_CHANNEL_TX, LL_SYSCFG_DMA_MAP_SPI1_WR);
+
     LL_SPI_Disable(SPIx);
 
     do
@@ -108,28 +131,9 @@ static void SPI_init()
         init_struct.CRCCalculation = LL_SPI_CRCCALCULATION_DISABLE;
         init_struct.BaudRate = LL_SPI_BAUDRATEPRESCALER_DIV4;
         LL_SPI_Init(SPIx, &init_struct);
-
     } while (false);
 
     LL_SPI_Enable(SPIx);
-
-    // do
-    // {
-    //     LL_DMA_InitTypeDef init_struct;
-    //     init_struct.Mode = LL_DMA_MODE_NORMAL;
-    //     init_struct.Direction = LL_DMA_DIRECTION_MEMORY_TO_PERIPH;
-    //     init_struct.PeriphOrM2MSrcAddress = LL_SPI_DMA_GetRegAddr(SPIx);
-    //     init_struct.PeriphOrM2MSrcDataSize = LL_DMA_PDATAALIGN_BYTE;
-    //     init_struct.PeriphOrM2MSrcIncMode = LL_DMA_PERIPH_NOINCREMENT;
-    //     init_struct.MemoryOrM2MDstDataSize = LL_DMA_MDATAALIGN_BYTE;
-    //     init_struct.Priority = DMA_PRIORITY;
-    //     LL_DMA_Init(DMAx, DMA_CHANNEL, &init_struct);
-    // } while (false);
-
-    // LL_DMA_DisableChannel(DMAx, DMA_CHANNEL);
-    // LL_SYSCFG_SetDMARemap(DMAx, DMA_CHANNEL, LL_SYSCFG_DMA_MAP_SPI1_WR);
-    // NVIC_SetPriority(DMA_CHANNEL_IRQn, DMA_CHANNEL_IRQ_PRIORITY);
-    // NVIC_EnableIRQ(DMA_CHANNEL_IRQn);
 }
 
 static void SPI_write_byte(uint8_t n)
@@ -144,6 +148,156 @@ static void SPI_write_byte(uint8_t n)
     }
 
     LL_SPI_ReceiveData8(SPIx);
+}
+
+static void SPI_DMA_write_buf(const uint8_t *buf, uint32_t size)
+{
+    LL_SPI_Disable(SPIx);
+    LL_DMA_DisableChannel(DMA1, DMA_CHANNEL_RX);
+    LL_DMA_DisableChannel(DMA1, DMA_CHANNEL_TX);
+
+    DMA_CLEAR_GI();
+    xSemaphoreTake(TC_semphr, 0);
+
+    do
+    {
+        LL_DMA_ConfigTransfer(DMA1, DMA_CHANNEL_TX,             //
+                              LL_DMA_DIRECTION_MEMORY_TO_PERIPH //
+                                  | LL_DMA_MODE_NORMAL          //
+                                  | LL_DMA_PERIPH_NOINCREMENT   //
+                                  | LL_DMA_MEMORY_INCREMENT     //
+                                  | LL_DMA_PDATAALIGN_BYTE      //
+                                  | LL_DMA_MDATAALIGN_BYTE      //
+                                  | DMA_PRIORITY                //
+        );
+
+        LL_DMA_SetPeriphAddress(DMA1, DMA_CHANNEL_TX, LL_SPI_DMA_GetRegAddr(SPIx));
+        LL_DMA_SetMemoryAddress(DMA1, DMA_CHANNEL_TX, (uint32_t)buf);
+        LL_DMA_SetDataLength(DMA1, DMA_CHANNEL_TX, size);
+    } while (false);
+
+    do
+    {
+        LL_DMA_ConfigTransfer(DMA1, DMA_CHANNEL_RX,             //
+                              LL_DMA_DIRECTION_PERIPH_TO_MEMORY //
+                                  | LL_DMA_MODE_NORMAL          //
+                                  | LL_DMA_PERIPH_NOINCREMENT   //
+                                  | LL_DMA_MEMORY_NOINCREMENT   //
+                                  | LL_DMA_PDATAALIGN_BYTE      //
+                                  | LL_DMA_MDATAALIGN_BYTE      //
+                                  | DMA_PRIORITY                //
+        );
+
+        LL_DMA_SetPeriphAddress(DMA1, DMA_CHANNEL_RX, LL_SPI_DMA_GetRegAddr(SPIx));
+        LL_DMA_SetMemoryAddress(DMA1, DMA_CHANNEL_RX, (uint32_t)&dummy);
+        LL_DMA_SetDataLength(DMA1, DMA_CHANNEL_RX, size);
+    } while (false);
+
+    DMA_ENABLE_IT_TC();
+    LL_DMA_EnableChannel(DMA1, DMA_CHANNEL_TX);
+    LL_DMA_EnableChannel(DMA1, DMA_CHANNEL_RX);
+
+    LL_SPI_EnableDMAReq_RX(SPIx);
+    LL_SPI_Enable(SPIx);
+    LL_SPI_EnableDMAReq_TX(SPIx);
+
+    xSemaphoreTake(TC_semphr, portMAX_DELAY);
+
+    while (LL_SPI_TX_FIFO_EMPTY != LL_SPI_GetTxFIFOLevel(SPIx))
+    {
+    }
+    while (LL_SPI_IsActiveFlag_BSY(SPIx))
+    {
+    }
+    while (LL_SPI_RX_FIFO_EMPTY != LL_SPI_GetRxFIFOLevel(SPIx))
+    {
+    }
+
+    LL_SPI_DisableDMAReq_TX(SPIx);
+    LL_SPI_DisableDMAReq_RX(SPIx);
+}
+
+static void SPI_DMA_fill(uint8_t n, uint32_t size)
+{
+    // TODO: investigate this!
+    volatile auto n1 = n;
+
+    LL_SPI_Disable(SPIx);
+    LL_DMA_DisableChannel(DMA1, DMA_CHANNEL_RX);
+    LL_DMA_DisableChannel(DMA1, DMA_CHANNEL_TX);
+
+    DMA_CLEAR_GI();
+    xSemaphoreTake(TC_semphr, 0);
+
+    do
+    {
+        LL_DMA_ConfigTransfer(DMA1, DMA_CHANNEL_TX,             //
+                              LL_DMA_DIRECTION_MEMORY_TO_PERIPH //
+                                  | LL_DMA_MODE_NORMAL          //
+                                  | LL_DMA_PERIPH_NOINCREMENT   //
+                                  | LL_DMA_MEMORY_NOINCREMENT   //
+                                  | LL_DMA_PDATAALIGN_BYTE      //
+                                  | LL_DMA_MDATAALIGN_BYTE      //
+                                  | DMA_PRIORITY                //
+        );
+
+        LL_DMA_SetPeriphAddress(DMA1, DMA_CHANNEL_TX, LL_SPI_DMA_GetRegAddr(SPIx));
+        LL_DMA_SetMemoryAddress(DMA1, DMA_CHANNEL_TX, (uint32_t)&n1);
+        LL_DMA_SetDataLength(DMA1, DMA_CHANNEL_TX, size);
+    } while (false);
+
+    do
+    {
+        LL_DMA_ConfigTransfer(DMA1, DMA_CHANNEL_RX,             //
+                              LL_DMA_DIRECTION_PERIPH_TO_MEMORY //
+                                  | LL_DMA_MODE_NORMAL          //
+                                  | LL_DMA_PERIPH_NOINCREMENT   //
+                                  | LL_DMA_MEMORY_NOINCREMENT   //
+                                  | LL_DMA_PDATAALIGN_BYTE      //
+                                  | LL_DMA_MDATAALIGN_BYTE      //
+                                  | DMA_PRIORITY                //
+        );
+
+        LL_DMA_SetPeriphAddress(DMA1, DMA_CHANNEL_RX, LL_SPI_DMA_GetRegAddr(SPIx));
+        LL_DMA_SetMemoryAddress(DMA1, DMA_CHANNEL_RX, (uint32_t)&dummy);
+        LL_DMA_SetDataLength(DMA1, DMA_CHANNEL_RX, size);
+    } while (false);
+
+    DMA_ENABLE_IT_TC();
+    LL_DMA_EnableChannel(DMA1, DMA_CHANNEL_TX);
+    LL_DMA_EnableChannel(DMA1, DMA_CHANNEL_RX);
+
+    LL_SPI_EnableDMAReq_RX(SPIx);
+    LL_SPI_Enable(SPIx);
+    LL_SPI_EnableDMAReq_TX(SPIx);
+
+    xSemaphoreTake(TC_semphr, portMAX_DELAY);
+
+    while (LL_SPI_TX_FIFO_EMPTY != LL_SPI_GetTxFIFOLevel(SPIx))
+    {
+    }
+    while (LL_SPI_IsActiveFlag_BSY(SPIx))
+    {
+    }
+    while (LL_SPI_RX_FIFO_EMPTY != LL_SPI_GetRxFIFOLevel(SPIx))
+    {
+    }
+
+    LL_SPI_DisableDMAReq_TX(SPIx);
+    LL_SPI_DisableDMAReq_RX(SPIx);
+}
+
+extern "C"
+{
+    void DMA_CHANNEL_IRQHandler()
+    {
+        if (DMA_CHECK_TC())
+        {
+            DMA_DISABLE_IT_TC();
+            DMA_CLEAR_TC();
+            xSemaphoreGiveFromISR(TC_semphr, NULL);
+        }
+    }
 }
 
 namespace st7565
@@ -173,9 +327,9 @@ namespace st7565
         return 0b0000'0000 | (0b1111 & n);
     }
 
-    constexpr uint8_t cmd_inverse(bool inv)
+    constexpr uint8_t cmd_inverse(bool inverse)
     {
-        return 0b1010'0110 | (inv ? 1 : 0);
+        return 0b1010'0110 | (inverse ? 1 : 0);
     }
 
     constexpr uint8_t cmd_all_pixel_on(bool on)
@@ -183,7 +337,7 @@ namespace st7565
         return 0b1010'0100 | (on ? 1 : 0);
     }
 
-    constexpr uint8_t cmd_reset = 0b1110'0010;
+    constexpr uint8_t cmd_reset() { return 0b1110'0010; }
 
     constexpr uint8_t cmd_regulation_ratio(uint8_t n)
     {
@@ -205,12 +359,14 @@ namespace st7565
         return 0b1010'0000 | (MX ? 1 : 0);
     }
 
-    constexpr uint8_t cmd_set_EV = 0b1000'0001;
+    constexpr uint8_t cmd_set_EV() { return 0b1000'0001; }
 
     constexpr uint8_t cmd_bias_select(uint8_t n)
     {
         return 0b1010'0010 | (1 & n);
     }
+
+    constexpr uint8_t cmd_nop() { return 0b1110'0011; }
 
 } // namespace st7565
 
@@ -228,7 +384,7 @@ void driver::lcd::init(bool inverse)
     {
         A0_cmd_mode();
 
-        SPI_write_byte(st7565::cmd_reset);
+        SPI_write_byte(st7565::cmd_reset());
         LL_mDelay(120);
         SPI_write_byte(st7565::cmd_bias_select(0));
         SPI_write_byte(st7565::cmd_MY(false));
@@ -236,16 +392,16 @@ void driver::lcd::init(bool inverse)
         SPI_write_byte(st7565::cmd_inverse(inverse));
         SPI_write_byte(st7565::cmd_all_pixel_on(false));
         SPI_write_byte(st7565::cmd_regulation_ratio(4));
-        SPI_write_byte(st7565::cmd_set_EV);
+        SPI_write_byte(st7565::cmd_set_EV());
         SPI_write_byte(0x1f);
-        SPI_write_byte(st7565::cmd_power_control(0x3));
+        SPI_write_byte(st7565::cmd_power_control(0b011));
         LL_mDelay(1);
-        SPI_write_byte(st7565::cmd_power_control(0x6));
+        SPI_write_byte(st7565::cmd_power_control(0b110));
         LL_mDelay(1);
-        SPI_write_byte(st7565::cmd_power_control(0x7));
-        SPI_write_byte(st7565::cmd_power_control(0x7));
-        SPI_write_byte(st7565::cmd_power_control(0x7));
-        SPI_write_byte(st7565::cmd_power_control(0x7));
+        for (uint32_t i = 0; i < 4; i++)
+        {
+            SPI_write_byte(st7565::cmd_power_control(0b111));
+        }
         LL_mDelay(40);
         SPI_write_byte(st7565::cmd_set_start_line(0));
         SPI_write_byte(st7565::cmd_display_on(true));
@@ -266,6 +422,21 @@ void driver::lcd::init(bool inverse)
     }
 
     CS_release();
+
+    ::inverse = inverse;
+
+    TC_semphr = xSemaphoreCreateBinaryStatic(&TC_semphr_obj);
+    lcd_mutex = xSemaphoreCreateMutexStatic(&lcd_mutex_obj);
+}
+
+bool driver::lcd::lock(TickType_t block)
+{
+    return pdTRUE == xSemaphoreTake(lcd_mutex, block);
+}
+
+void driver::lcd::unlock()
+{
+    xSemaphoreGive(lcd_mutex);
 }
 
 void driver::lcd::fill(uint8_t px)
@@ -278,15 +449,54 @@ void driver::lcd::fill(uint8_t px)
         SPI_write_byte(st7565::cmd_set_page_addr(page));
         SPI_write_byte(st7565::cmd_set_col_addr_MSB(COL_ADDR_OFFSET));
         SPI_write_byte(st7565::cmd_set_col_addr_LSB(COL_ADDR_OFFSET));
-        vPortYield();
 
         A0_data_mode();
-        for (uint32_t col = 0; col < LCD_WIDTH; col++)
-        {
-            SPI_write_byte(px);
-            vPortYield();
-        }
+        SPI_DMA_fill(px, LCD_WIDTH);
     }
 
     CS_release();
+}
+
+void driver::lcd::blit(uint32_t page, uint32_t col, const uint8_t *buf, uint32_t size)
+{
+    CS_assert();
+
+    A0_cmd_mode();
+    SPI_write_byte(st7565::cmd_set_page_addr(page));
+    SPI_write_byte(st7565::cmd_set_col_addr_MSB(col + COL_ADDR_OFFSET));
+    SPI_write_byte(st7565::cmd_set_col_addr_LSB(col + COL_ADDR_OFFSET));
+
+    A0_data_mode();
+    if (size < DMA_TX_MIN)
+    {
+        while (size > 0)
+        {
+            SPI_write_byte(*buf);
+            buf++;
+            size--;
+        }
+    }
+    else
+    {
+        SPI_DMA_write_buf(buf, size);
+    }
+
+    CS_release();
+}
+
+bool driver::lcd::is_inverse()
+{
+    return ::inverse;
+}
+
+void driver::lcd::set_inverse(bool inverse)
+{
+    if (::inverse != inverse)
+    {
+        CS_assert();
+        A0_cmd_mode();
+        SPI_write_byte(st7565::cmd_inverse(inverse));
+        CS_release();
+        ::inverse = inverse;
+    }
 }

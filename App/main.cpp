@@ -72,7 +72,7 @@ int main()
 
     printf("hello!\n");
 
-    driver::lcd::init();
+    driver::lcd::init(true);
     driver::keypad::init();
     driver::backlight::init(5);
 
