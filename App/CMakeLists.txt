@@ -8,6 +8,7 @@ target_include_directories(App INTERFACE .)
 
 target_sources(App INTERFACE
     blink_task.cpp
+    audio_rx.cpp
     main.c
     main_task.cpp
     py32f071_it.c

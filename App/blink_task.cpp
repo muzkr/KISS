@@ -1,10 +1,12 @@
-#include "blink_task.h"
+#include "blink_task.hpp"
 #include "FreeRTOS.h"
 #include "task.h"
 #include "printf.h"
 #include "driver/flashlight.hpp"
+#include "driver/keypad.hpp"
 
 #include "driver/bk4819.h"
+#include "audio_rx.hpp"
 
 static void blink(void *arg);
 static StaticTask_t blink_task;
@@ -15,12 +17,8 @@ void blink_task_init()
     blink_task_handle = xTaskCreateStatic(blink, "blink", NULL, 1, &blink_task);
 }
 
-#define ENABLE_TAIL_TONE 1
-
-static void blink(void *arg)
+static void radio_init()
 {
-    printf("BK4829 Standalone Test\n");
-
     // Single function call handles everything
     BK4819_Init();
 
@@ -31,93 +29,54 @@ static void blink(void *arg)
     uint16_t chip_id = BK4819_ReadRegister(BK4819_REG_00);
     printf("Chip ID: 0x%04X\n", chip_id);
 
-    // Start RSSI monitoring
     BK4819_SetFrequency(14500000);
 
-    // Configure squelch before enabling receiver
-    BK4819_SetupSquelch(
-        72, // RSSI open threshold (-124 dBm)
-        70, // RSSI close threshold (-125 dBm)
-        46, // Noise open threshold
-        47, // Noise close threshold
-        8,  // Glitch close threshold
-        8   // Glitch open threshold
-    );
+    // Configure squelch
+    BK4819_SetupSquelch(72, 70, 46, 47, 8, 8);
 
-    BK4819_RX_TurnOn();
-
-    // Enable FM audio output
-    // BK4819_SetAF(BK4819_AF_FM);
-
-    // Enable squelch interrupts in mask register
-    BK4819_WriteRegister(BK4819_REG_3F,
-                         BK4819_REG_3F_CxCSS_TAIL |        // Add CTCSS tail detection
-                             BK4819_REG_3F_SQUELCH_FOUND | //
-                             BK4819_REG_3F_SQUELCH_LOST    //
-    );
-
-    // Set up CTCSS tail detection (55Hz tone)
-    BK4819_SetCTCSSFrequency(550); // 55.0Hz tail tone
+    BK4819_SetCTCSSFrequency(550);
     BK4819_SetTailDetection(550);
+}
 
-    //  Enable audio path and amplifier
-    AUDIO_AudioPathOn(); // Enable audio path to speaker
+static void blink(void *arg)
+{
+    printf("BK4829 Standalone Test\n");
 
-    // Configure audio gain (optional - uses default values)
-    BK4819_WriteRegister(BK4819_REG_48,
-                         (11u << 12) |    // ??? bits
-                             (0u << 10) | // AF Rx Gain-1 (0dB)
-                             (58u << 4) | // AF Rx Gain-2 (volume)
-                             (8u << 0));  // AF DAC Gain
+    // Initialize
+    radio_init();
 
-    printf("Audio path and speaker enabled\n");
+    bool is_receive_mode = true;
+
+    audio_rx_enter();
 
     while (1)
     {
-        // Check if interrupt is pending
-        if (BK4819_ReadRegister(BK4819_REG_0C) & 1u)
+        driver::keypad::key_event e;
+        if (driver::keypad::receive_event(&e, 0))
         {
-            // Clear interrupt
-            BK4819_WriteRegister(BK4819_REG_02, 0);
-            // Read interrupt status
-            uint16_t interrupt_status = BK4819_ReadRegister(BK4819_REG_02);
-
-            uint16_t raw_rssi = BK4819_GetRSSI();
-            int16_t rssi_dbm = BK4819_GetRSSI_dBm();
-
-            // Check squelch interrupts
-            bool squelch_found = (interrupt_status & BK4819_REG_02_SQUELCH_FOUND);
-            bool squelch_lost = (interrupt_status & BK4819_REG_02_SQUELCH_LOST);
-            bool css_tail_found = (interrupt_status & BK4819_REG_02_CxCSS_TAIL);
-
-            printf("RSSI: %u (%d dBm), INT: 0x%04X, SQL_FOUND: %d, SQL_LOST: %d\n",
-                   raw_rssi, rssi_dbm, interrupt_status,
-                   (int)squelch_found, (int)squelch_lost);
-
-            // Control audio based on squelch
-            if (css_tail_found)
+            if (driver::keypad::is_key_pressed(e, driver::keypad::KEY_PTT))
             {
-                // Tail tone detected - prepare to mute gracefully
-                printf("CTCSS Tail detected - preparing mute\n");
-                BK4819_SetAF(BK4819_AF_MUTE);
-                BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false); // Turn OFF green LED
+                // PTT is pressed
+                printf("PTT pressed - switching to TX mode\n");
+                audio_rx_exit();
+                is_receive_mode = false;
             }
-#if !(ENABLE_TAIL_TONE)
-            else if (squelch_found)
+            else if (driver::keypad::is_key_released(e, driver::keypad::KEY_PTT))
             {
-                BK4819_SetAF(BK4819_AF_MUTE);                         // Signal lost, mute audio
-                BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false); // Turn OFF green LED
-                printf("-> SQUELCH CLOSED - Audio muted\n");
-            }
-#endif
-            else if (squelch_lost)
-            {
-                BK4819_SetAF(BK4819_AF_FM);                          // Signal found, enable audio
-                BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, true); // Turn ON green LED
-                printf("-> SQUELCH OPEN - Audio enabled\n");
+                // PTT is released
+                printf("PTT released - switching to RX mode\n");
+                audio_rx_enter();
+                is_receive_mode = true;
             }
         }
 
-        // vTaskDelay(pdMS_TO_TICKS(100));
-    }
+        // Let others run
+        vPortYield();
+
+        // Only process receiver interrupts when in receive mode
+        if (is_receive_mode)
+        {
+            audio_rx_process();
+        }
+    } // while
 }

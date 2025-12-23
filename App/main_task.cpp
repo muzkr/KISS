@@ -9,7 +9,7 @@
 #include "driver/adc.hpp"
 #include "driver/flashlight.hpp"
 
-#include "blink_task.h"
+#include "blink_task.hpp"
 
 static StaticTask_t main_task_obj;
 static TaskHandle_t main_task;
