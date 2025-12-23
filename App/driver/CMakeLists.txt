@@ -15,4 +15,8 @@ target_sources(KISS_Driver INTERFACE
     serial.cpp
     adc.cpp
     flashlight.cpp
+    bk4829.c
+    audio_path.cpp
+    spi_flash.cpp
+    py25q16.cpp
 )

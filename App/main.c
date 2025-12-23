@@ -31,25 +31,9 @@
 #include "main.h"
 #include "FreeRTOS.h"
 #include "task.h"
-#include "printf.h"
-#include <string.h>
-#include "driver/keypad.hpp"
-#include "driver/lcd.hpp"
-#include "driver/backlight.hpp"
-#include "driver/serial.hpp"
-#include "driver/adc.hpp"
-#include "driver/flashlight.hpp"
+#include "main_task.h"
 
 static void APP_SystemClockConfig();
-static void blink(void *arg);
-
-static StaticTask_t blink_task;
-static TaskHandle_t blink_task_handle;
-
-void _putchar(char c)
-{
-    driver::serial::send((uint8_t *)&c, 1);
-}
 
 /**
  * @brief  Main program.
@@ -64,69 +48,12 @@ int main()
     /* Clock initialization, configure the system clock as HSI */
     APP_SystemClockConfig();
 
-    driver::serial::init();
-    driver::lcd::init();
-    driver::keypad::init();
-    driver::backlight::init(5);
-    driver::adc::init();
-    driver::flashlight::init();
-
-    blink_task_handle = xTaskCreateStatic(blink, "blink", NULL, 1, &blink_task);
-
+    main_task_init();
     vTaskStartScheduler();
 
     while (1)
     {
     }
-}
-
-static void blink(void *arg)
-{
-
-    printf("hello!\n");
-
-    while (true)
-    {
-        // LL_GPIO_TogglePin(GPIOC, LL_GPIO_PIN_13);
-        // vTaskDelay(pdMS_TO_TICKS(500));
-
-        using namespace driver::keypad;
-
-        key_event e;
-        if (receive_event(&e, portMAX_DELAY))
-        {
-            printf("keypad event: %x %x %x\n", e, get_event_type(e), get_key_code(e));
-
-            if (KEY_PRESSED == get_event_type(e))
-            {
-                driver::lcd::fill((uint8_t)get_key_code(e));
-            }
-
-            if (KEY_PRESSED == get_event_type(e))
-            {
-                if (KEY_UP == get_key_code(e))
-                {
-                    driver::backlight::set_level(1 + driver::backlight::get_current_level());
-                }
-                else if (KEY_DOWN == get_key_code(e) && driver::backlight::get_current_level() > 0)
-                {
-                    driver::backlight::set_level(driver::backlight::get_current_level() - 1);
-                }
-            }
-
-            if (KEY_SHORT_PRESS == get_event_type(e) && KEY_MENU == get_key_code(e))
-            {
-                uint16_t vol = driver::adc::get_voltage();
-                printf("batt: ~ %d mV\n", vol * 4 * 3300 / 0xfff);
-            }
-
-            if (KEY_SHORT_PRESS == get_event_type(e) && KEY_SIDE1 == get_key_code(e))
-            {
-                driver::flashlight::toggle();
-            }
-        } //
-
-    } // while
 }
 
 /**
@@ -138,7 +65,7 @@ static void APP_SystemClockConfig()
 {
     // LL_SetSystemCoreClock(48000000);
     SystemCoreClockUpdate();
-    LL_Init1msTick(SystemCoreClock);
+    // LL_Init1msTick(SystemCoreClock);
 }
 
 /**

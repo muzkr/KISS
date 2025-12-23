@@ -66,8 +66,19 @@ namespace driver::keypad
         return (event_type)(0xff & e);
     }
 
+    static inline bool is_key_pressed(key_event e, key_code key)
+    {
+        return key == get_key_code(e) && KEY_PRESSED == get_event_type(e);
+    }
+
+    static inline bool is_key_released(key_event e, key_code key)
+    {
+        event_type t = get_event_type(e);
+        return key == get_key_code(e) && (KEY_SHORT_PRESS == t || KEY_RELEASED == t);
+    }
+
     void init();
-    bool receive_event(key_event *e, TickType_t wait);
+    bool receive_event(key_event *e, TickType_t wait = portMAX_DELAY);
 }
 
 #endif // _DRIVER_KEYPAD_HPP
