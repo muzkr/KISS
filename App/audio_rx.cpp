@@ -11,6 +11,9 @@ void audio_rx_enter()
 {
     // Enable receiver
     BK4819_RX_TurnOn();
+
+    BK4819_PickRXFilterPathBasedOnFrequency(40975000);
+
     BK4819_WriteRegister(BK4819_REG_3F,
                          BK4819_REG_3F_CxCSS_TAIL |
                              BK4819_REG_3F_SQUELCH_FOUND |
@@ -18,7 +21,7 @@ void audio_rx_enter()
 
     AUDIO_AudioPathOn();
     BK4819_WriteRegister(BK4819_REG_48,
-                         (11u << 12) | (0u << 10) | (58u << 4) | (8u << 0));
+                         (9u << 12) | (0u << 10) | (50u << 4) | (6u << 0));
 }
 
 void audio_rx_exit()
