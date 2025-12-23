@@ -52,9 +52,6 @@ extern "C" {
 #include "py32_assert.h"
 #endif /* USE_FULL_ASSERT */
 
-/* Private includes ----------------------------------------------------------*/
-/* Private defines -----------------------------------------------------------*/
-/* Exported variables prototypes ---------------------------------------------*/
 /* Exported functions prototypes ---------------------------------------------*/
 void APP_ErrorHandler(void);
 

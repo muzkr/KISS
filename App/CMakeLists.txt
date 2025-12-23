@@ -7,7 +7,9 @@ add_library(App INTERFACE)
 target_include_directories(App INTERFACE .)
 
 target_sources(App INTERFACE
-    main.cpp
+    blink_task.cpp
+    main.c
+    main_task.cpp
     py32f071_it.c
     system_py32f071.c
     app_freertos.c
