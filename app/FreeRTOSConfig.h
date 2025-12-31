@@ -65,6 +65,7 @@
 #define configQUEUE_REGISTRY_SIZE                8
 #define configENABLE_BACKWARD_COMPATIBILITY      0
 #define configUSE_PORT_OPTIMISED_TASK_SELECTION  0
+#define configIDLE_SHOULD_YIELD                  1
 
 /* Defaults to size_t for backward compatibility, but can be changed
    if lengths will always be less than the number of bytes in a size_t. */

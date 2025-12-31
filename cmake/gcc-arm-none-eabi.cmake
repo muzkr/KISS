@@ -37,6 +37,6 @@ set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} -Wno-register -fno-rtti -fno-exceptions -f
 
 set(CMAKE_EXE_LINKER_FLAGS "${TARGET_FLAGS}")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --specs=nano.specs")
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-Map=${CMAKE_PROJECT_NAME}.map -Wl,--gc-sections")
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--gc-sections")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--print-memory-usage")
 set(TOOLCHAIN_LINK_LIBRARIES "m")
