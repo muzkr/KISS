@@ -47,15 +47,15 @@
 #endif
 
 #ifndef CONFIG_USBDEV_MSC_MANUFACTURER_STRING
-#define CONFIG_USBDEV_MSC_MANUFACTURER_STRING ""
+#define CONFIG_USBDEV_MSC_MANUFACTURER_STRING "KISS"
 #endif
 
 #ifndef CONFIG_USBDEV_MSC_PRODUCT_STRING
-#define CONFIG_USBDEV_MSC_PRODUCT_STRING ""
+#define CONFIG_USBDEV_MSC_PRODUCT_STRING "KISS-BL2"
 #endif
 
 #ifndef CONFIG_USBDEV_MSC_VERSION_STRING
-#define CONFIG_USBDEV_MSC_VERSION_STRING "0.01"
+#define CONFIG_USBDEV_MSC_VERSION_STRING "1.0"
 #endif
 
 // #define CONFIG_USBDEV_MSC_THREAD
@@ -86,7 +86,7 @@
 
 #define USBD_IRQHandler USB_IRQHandler
 
-void msc_ram_init(void);
+void msc_init(uint8_t boot_mode, uint32_t param);
 
 
 #endif
