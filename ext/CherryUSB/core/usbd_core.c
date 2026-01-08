@@ -761,6 +761,11 @@ static void usbd_class_event_notify_handler(uint8_t event, void *arg)
     }
 }
 
+void usbd_event_sof_handler(void)
+{
+    usbd_class_event_notify_handler(USBD_EVENT_SOF, NULL);
+}
+
 void usbd_event_connect_handler(void)
 {
     usbd_class_event_notify_handler(USBD_EVENT_CONNECTED, NULL);

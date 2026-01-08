@@ -5,15 +5,24 @@
 #include "py32f071_ll_rcc.h"
 #include "py32f071_ll_rtc.h"
 
-static inline uint32_t make_boot_mode(uint8_t boot_mode, uint32_t param)
+#define BL2_MARK 0xbb
+
+static bool extract_boot_mode(uint32_t PRL, uint32_t ALR, uint8_t *boot_mode, uint32_t *param)
 {
-    return (boot_mode << 24) | (0xffffff & param);
+    if (BL2_MARK != (PRL >> 8))
+    {
+        return false;
+    }
+
+    *boot_mode = 0xff & PRL;
+    *param = ALR;
+    return true;
 }
 
-static inline void analyze_boot_mode(uint32_t n, uint8_t *boot_mode, uint32_t *param)
+static inline void make_boot_mode(uint32_t *PRL, uint32_t *ALR, uint8_t boot_mode, uint32_t param)
 {
-    *boot_mode = n >> 24;
-    *param = 0xffffff & n;
+    *PRL = (BL2_MARK << 8) | boot_mode;
+    *ALR = param;
 }
 
 bool bl2_get_boot_mode(uint8_t *boot_mode, uint32_t *param)
@@ -33,7 +42,8 @@ bool bl2_get_boot_mode(uint8_t *boot_mode, uint32_t *param)
     // {
     // }
 
-    uint32_t n1 = (RTC->ALRH << 16) | (0xffff & RTC->ALRL);
+    uint32_t ALR = (RTC->ALRH << 16) | (0xffff & RTC->ALRL);
+    uint32_t PRL = (RTC->PRLH << 16) | (0xffff & RTC->PRLL);
 
     LL_RCC_DisableRTC();
     // LL_RCC_ForceBackupDomainReset();
@@ -41,8 +51,8 @@ bool bl2_get_boot_mode(uint8_t *boot_mode, uint32_t *param)
     LL_RCC_LSI_Disable();
     LL_APB1_GRP1_DisableClock(LL_APB1_GRP1_PERIPH_RTC);
 
-    analyze_boot_mode(n1, boot_mode, param);
-    return true;
+    return extract_boot_mode(PRL, ALR, boot_mode, param);
+    // return true;
 }
 
 void bl2_set_boot_mode(uint8_t boot_mode, uint32_t param)
@@ -78,7 +88,10 @@ void bl2_set_boot_mode(uint8_t boot_mode, uint32_t param)
     {
     }
 
-    LL_RTC_ALARM_Set(RTC, make_boot_mode(boot_mode, param));
+    uint32_t PRL, ALR;
+    make_boot_mode(&PRL, &ALR, boot_mode, param);
+    LL_RTC_ALARM_Set(RTC, ALR);
+    LL_RTC_SetAsynchPrescaler(RTC, PRL);
 
     LL_RTC_EnableWriteProtection(RTC);
 

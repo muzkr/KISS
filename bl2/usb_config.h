@@ -86,7 +86,8 @@
 
 #define USBD_IRQHandler USB_IRQHandler
 
-void msc_init(uint8_t boot_mode, uint32_t param);
+void msc_init(bool fmt, uint16_t skip_sectors);
+bool msc_update_alive();
 
 
 #endif

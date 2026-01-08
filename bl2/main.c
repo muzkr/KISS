@@ -29,6 +29,7 @@
  */
 
 #include "main.h"
+#include "board.h"
 #include "printf.h"
 #include "bl2.h"
 #include "fw.h"
@@ -36,9 +37,6 @@
 #include "usb_config.h"
 
 #define ENABLE_PRINTF 1
-
-static void APP_SystemClockConfig();
-static void init_usb(uint8_t boot_mode, uint32_t param);
 
 #if ENABLE_PRINTF
 
@@ -54,6 +52,8 @@ void _putchar(char c)
 }
 
 #endif // ENABLE_PRINTF
+
+static void APP_SystemClockConfig();
 
 /**
  * @brief  Main program.
@@ -74,43 +74,47 @@ int main()
     printf("hello!\n");
 
     uint8_t boot_mode;
-    uint32_t boot_param = 0;
+    uint32_t boot_param;
     if (!bl2_get_boot_mode(&boot_mode, &boot_param))
     {
-        boot_mode = 0xff;
+        boot_mode = _BL2_BOOT_MODE_INVALID;
     }
     printf("boot mode = %x, param = %x (%d)\n", boot_mode, boot_param, boot_param);
 
     // Test
-    boot_mode = BL2_BOOT_MODE_USB_DISK ;
+    boot_mode = BL2_BOOT_USB_DISK;
     boot_param = 512;
 
-    if (BL2_BOOT_MODE_USB_DISK == boot_mode || BL2_BOOT_MODE_USB_DISK_FMT == boot_mode)
+    if (BL2_BOOT_USB_DISK == boot_mode || BL2_BOOT_USB_DISK_FMT == boot_mode)
     {
+        systick_init();
+        backlight_init();
         py25q16_init();
-        init_usb(boot_mode, boot_param);
+
+        msc_init(BL2_BOOT_USB_DISK_FMT == boot_mode, 0xffff & boot_param);
+
+        while (1)
+        {
+            backlight_update();
+            if (msc_update_alive())
+            {
+                // TODO:
+            }
+        }
+    }
+    else if (BL2_BOOT_DFU == boot_mode)
+    {
+        backlight_init();
+        py25q16_init();
+        // TODO
     }
     else
     {
-        SysTick->CTRL = 0; // Disable
         fw_boot();
+        while (1)
+        {
+        }
     }
-
-    while (1)
-    {
-    }
-}
-
-static void init_usb(uint8_t boot_mode, uint32_t param)
-{
-    LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_USBD);
-    LL_IOP_GRP1_EnableClock(LL_IOP_GRP1_PERIPH_GPIOA);
-
-    msc_init(boot_mode, param);
-
-    /* Enable USB interrupt */
-    NVIC_SetPriority(USBD_IRQn, 3);
-    NVIC_EnableIRQ(USBD_IRQn);
 }
 
 #if ENABLE_PRINTF
@@ -158,7 +162,7 @@ static void APP_SystemClockConfig()
 {
     // LL_SetSystemCoreClock(48000000);
     SystemCoreClockUpdate();
-    LL_Init1msTick(SystemCoreClock);
+    // LL_Init1msTick(SystemCoreClock);
 }
 
 /**

@@ -10,8 +10,9 @@ target_link_libraries(BL2 INTERFACE PY32F071_Driver CherryUSB FAT BL2_lib)
 
 target_sources(BL2 INTERFACE
     main.c
+    board.c
     py25q16.c
-    usbd_msc.c
+    usbd_msc_impl.c
     fw.c
     py32f071_it.c
     system_py32f071.c

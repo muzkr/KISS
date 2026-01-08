@@ -134,6 +134,10 @@ int usbd_ep_start_read(const uint8_t ep, uint8_t *data, uint32_t data_len);
 /* usb dcd irq callback */
 
 /**
+ * @brief Usb SOF irq callback.
+ */
+void usbd_event_sof_handler(void);
+/**
  * @brief Usb reset irq callback.
  */
 void usbd_event_reset_handler(void);

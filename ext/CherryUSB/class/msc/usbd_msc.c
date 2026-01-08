@@ -96,11 +96,23 @@ void msc_storage_notify_handler(uint8_t event, void *arg)
             USB_LOG_DBG("Start reading cbw\r\n");
             usbd_ep_start_read(mass_ep_data[MSD_OUT_EP_IDX].ep_addr, (uint8_t *)&usbd_msc_cfg.cbw, USB_SIZEOF_MSC_CBW);
             break;
+        case USBD_EVENT_SOF:
+        {
+            static uint32_t sof_cnt = 0;
+            if (++sof_cnt >= 100)
+            {
+                sof_cnt = 0;
+                usbd_msc_heart_beat();
+            }
+        }
+        break;
 
         default:
             break;
     }
 }
+
+__attribute__((weak)) void usbd_msc_heart_beat(){}
 
 static void usbd_msc_bot_abort(void)
 {

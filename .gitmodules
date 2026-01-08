@@ -1,6 +1,6 @@
-[submodule "uf2"]
-	path = uf2
-	url = https://github.com/microsoft/uf2.git
 [submodule "ext/ass"]
 	path = ext/ass
 	url = https://github.com/muzkr/ass.git
+[submodule "uf2"]
+	path = uf2
+	url = https://github.com/microsoft/uf2.git

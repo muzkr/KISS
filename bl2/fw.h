@@ -2,8 +2,9 @@
 #define _FW_H
 
 #include <stdbool.h>
+#include "bl2.h"
 
-#define FW_ADDR (0x08002800 + 0x400 * 16)   // bl2 = 16 KB
+#define FW_ADDR (0x08002800 + BL2_SIZE)
 
 void fw_boot();
 

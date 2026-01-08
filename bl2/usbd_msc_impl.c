@@ -1,7 +1,9 @@
 #include "usbd_core.h"
 #include "usbd_msc.h"
 
+#include "main.h"
 #include "bl2.h"
+#include "board.h"
 #include "py25q16.h"
 #include "fat/fat.h"
 #include <string.h>
@@ -77,19 +79,30 @@ struct usbd_interface intf0;
 
 static volatile struct
 {
-    uint8_t boot_mode;
-    uint32_t param;
-} boot_params;
+    bool fmt;
+    uint16_t skip_sectors;
+} init_params;
 
-void msc_init(uint8_t boot_mode, uint32_t param)
+void msc_init(bool fmt, uint16_t skip_sectors)
 {
-    boot_params.boot_mode = boot_mode;
-    boot_params.param = param;
+
+    // printf("msc_init \n");
+
+    init_params.fmt = fmt;
+    init_params.skip_sectors = skip_sectors;
+
+    backlight_on(20000);
+
+    LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_USBD);
+    LL_IOP_GRP1_EnableClock(LL_IOP_GRP1_PERIPH_GPIOA);
 
     usbd_desc_register(msc_flash_descriptor);
     usbd_add_interface(usbd_msc_init_intf(&intf0, MSC_OUT_EP, MSC_IN_EP));
-
     usbd_initialize();
+
+    /* Enable USB interrupt */
+    NVIC_SetPriority(USBD_IRQn, 3);
+    NVIC_EnableIRQ(USBD_IRQn);
 }
 
 // -----------------------
@@ -124,9 +137,15 @@ enum
     BOOT_SECTOR_MEDIA = 0xf0,
 };
 
-#define SKIP_SECTORS (boot_params.param)
+#define SKIP_SECTORS (init_params.skip_sectors)
+#define BL_DUR 30000
 
-static bool fs_initialized = false;
+static volatile struct
+{
+    bool fs_initialized;
+    bool connected;
+    uint32_t alive_time;
+} usb_state = {0};
 
 static void print_sector(const uint8_t *buf, uint32_t size);
 static bool check_fs();
@@ -134,28 +153,66 @@ static void init_fs();
 
 void usbd_configure_done_callback(void)
 {
-    /* do nothing */
+}
+
+void usbd_msc_heart_beat()
+{
+    // printf("usbd_msc_heart_beat \n");
+
+    usb_state.alive_time = systick_get_ticks_ms();
+}
+
+bool msc_update_alive()
+{
+    bool alive;
+
+    __disable_irq();
+    if (usb_state.connected)
+    {
+        uint32_t dt = systick_get_ticks_ms() - usb_state.alive_time;
+        alive = dt < 1000;
+    }
+    __enable_irq();
+
+    if (!alive)
+    {
+        // printf("msc_update_alive: not alive \n");
+        backlight_off();
+        // TODO:
+    }
+
+    return alive;
 }
 
 void usbd_msc_get_cap(uint8_t lun, uint32_t *block_num, uint16_t *block_size)
 {
+    // printf("usb connected\n");
+    // backlight_on(BL_DUR);
+
+    usb_state.connected = true;
+    usb_state.alive_time = systick_get_ticks_ms();
+
     *block_size = FAT_SECTOR_SIZE;
     *block_num = TOTAL_SECTORS - SKIP_SECTORS;
 }
 
 int usbd_msc_sector_read(uint32_t sector, uint8_t *buffer, uint32_t length)
 {
-    if (!fs_initialized)
+    if (!usb_state.fs_initialized)
     {
         init_fs();
-        fs_initialized = true;
+        usb_state.fs_initialized = true;
     }
+
+    // printf("usbd_msc_sector_read: length = %d\n", length);
 
     if (FAT_SECTOR_SIZE != length)
     {
         // printf("usbd_msc_sector_read: length = %d\n", length);
         return 1;
     }
+
+    backlight_on(BL_DUR);
 
     uint32_t addr = (SKIP_SECTORS + sector) * FAT_SECTOR_SIZE;
     py25q16_read(addr, buffer, FAT_SECTOR_SIZE);
@@ -172,6 +229,8 @@ int usbd_msc_sector_write(uint32_t sector, uint8_t *buffer, uint32_t length)
 
     // printf("usbd_msc_sector_write: sector = %d\n", sector);
     // print_sector(buffer, length);
+
+    backlight_on(BL_DUR);
 
     if (BOOT_SECTOR_NUM == sector)
     {
@@ -207,7 +266,7 @@ static bool check_fs()
 
 static void init_fs()
 {
-    if (BL2_BOOT_MODE_USB_DISK_FMT == boot_params.boot_mode)
+    if (init_params.fmt)
     {
         // OK
     }

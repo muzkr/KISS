@@ -158,7 +158,7 @@ int usb_dc_init(void)
   USB->ADDR = 0;
 
 //  USB->INT_USBE = USB_INTR_RESET;
-  USB->INT_USBE = USB_INTR_RESET | USB_INTR_SUSPEND | USB_INTR_RESUME;
+  USB->INT_USBE = USB_INTR_RESET | USB_INTR_SUSPEND | USB_INTR_RESUME | USB_INTR_SOF;
   USB->INT_IN1E = USB_INTR_EP0;
   USB->INT_OUT1E = 0;
 
@@ -686,6 +686,7 @@ void USBD_IRQHandler(void)
 
   if (is & USB_INTR_SOF)
   {
+    usbd_event_sof_handler();
   }
 
   if (is & USB_INTR_RESUME)
